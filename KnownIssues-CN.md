@@ -158,3 +158,82 @@ public function boot()
 }
 ```
 
+##使用maatwebsite/excel 导出excel失败
+更改前代码   return Excel::create($name, function($excel) use ($export) {
+                $excel->sheet('XXX', function($sheet) use ($export) {
+                             //表格列宽度
+                             $sheet->setWidth(array(
+                                ...	...
+                             ));
+                             $sheet->fromArray($export);
+                         });
+                })->export('xls');
+maatwebsite/excel导出excel在export()使用了在原生的header()函数，导致导出失败，相关源码如下,在_download中调用的原生的header()函数
+
+ public function export($ext = 'xls', Array $headers = [])
+    {
+        // Set the extension
+        $this->ext = mb_strtolower($ext);
+        
+        // Render the file
+        $this->_render();
+        
+        // Download the file
+        $this->_download($headers);
+    }
+     protected function _download(Array $headers = [])
+    {
+        // Set the headers
+        $this->_setHeaders(
+            $headers,
+            [
+                'Content-Type'        => $this->contentType,
+                'Content-Disposition' => 'attachment; filename="' . $this->filename . '.' . $this->ext . '"',
+                'Expires'             => 'Mon, 26 Jul 1997 05:00:00 GMT', // Date in the past
+                'Last-Modified'       => Carbon::now()->format('D, d M Y H:i:s'),
+                'Cache-Control'       => 'cache, must-revalidate',
+                'Pragma'              => 'public'
+            ]
+        );
+
+        // Check if writer isset
+        if (!$this->writer)
+            throw new LaravelExcelException('[ERROR] No writer was set.');
+
+
+        // Download
+        $this->writer->save('php://output');
+
+        // End the script to prevent corrupted xlsx files
+        exit;
+    }
+    
+ protected function _setHeaders(Array $headers = [], Array $default)
+    {
+    
+    if (headers_sent()) throw new LaravelExcelException('[ERROR]: Headers already sent');
+
+        // Merge the default headers with the overruled headers
+        $headers = array_merge($default, $headers);
+
+        foreach ($headers as $header => $value)
+        {
+            header($header . ': ' . $value);
+        }
+    }
+去掉export()的方法，并调用excel的string()方法将内容通过response()返回并设置响应的header(),
+更改后代码       return response(Excel::create($name, function($excel) use ($export) {
+             $excel->sheet('XXX', function($sheet) use ($export) {
+                 //表格列宽度
+                 $sheet->setWidth(array(
+                    ...	...
+                 ));
+                 $sheet->fromArray($export);
+             });
+            })->string())->header('Content-Type','application/vnd.ms-excel; charset=UTF-8')
+            ->header('Content-Disposition','attachment; filename="' . $filename . '.xls' . '"')
+            ->header('Expires','Mon, 26 Jul 1997 05:00:00 GMT')
+            ->header('Last-Modified',Carbon::now()->format('D, d M Y H:i:s'))
+            ->header('Cache-Control','cache, must-revalidate')
+            ->header('Pragma','public');
+
